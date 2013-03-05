@@ -20,6 +20,7 @@ showHelp() {
 	echo -e "\t--database\tuse specified database as target\n\t\t\tif this option is not used, all databases are targeted"
 	echo -e "\t--check\tonly shows fragmented tables, but do not optimize them"
 	echo -e "\t--detail\tadditionally display fragmented tables"
+	echo -e "\t--analyze\tanalyze all tables"
 }
 
 #s parse arguments
@@ -33,6 +34,7 @@ while [[ $1 == -* ]]; do
 		--database) mysqlDb="$2"; shift 2;;
 		--check) mysqlCheck="1"; shift;;
 		--detail) mysqlDetail="1"; shift;;
+		--analyze) mysqlAnalyze="1"; shift;;
 		--*) shift; break;;
 	esac
 done
@@ -99,6 +101,10 @@ for i in ${databases[@]}; do
 		echo "An error occured, check $log for more information."
 		exit 1;
 	fi
+	if [[ $mysqlAnalyze ]]; then
+	# get a list of all of the tables, grep for MyISAM or InnoDB
+	analyze=( $("${mysqlCmd}" -u"$mysqlUser" -p"$mysqlPass" -h"$mysqlHost" --skip-column-names --batch -e "SHOW TABLE STATUS FROM \`$i\`;" 2>"$log" | awk '{print $1,$2,$10}' | egrep "MyISAM|InnoDB|Aria" | awk '{print $1}') );
+	fi
 	tput sc
 	echo -n "Checking $i ... ";
 	if [[ ${#fragmented[@]} -gt 0 ]]; then
@@ -132,6 +138,19 @@ for i in ${databases[@]}; do
 		tput el
 	fi
 	unset fragmented
+	# only analyze table if enabled
+	if [[ $mysqlAnalyze ]]; then
+		for table in ${analyze[@]}; do
+				let analyzeTables=$analyzeTables+1;
+				echo -ne "\tAnalyzing $table ... ";
+				"${mysqlCmd}" -u"$mysqlUser" -p"$mysqlPass" -h"$mysqlHost" -D "$i" --skip-column-names --batch -e "analyze table \`$table\`" 2>"$log" >/dev/null
+				if [[ $? -gt 0 ]]; then
+					echo "An error occured, check $log for more information."
+					exit 1;
+				fi
+				echo done
+			done
+	fi
 done
 
 # footer message
@@ -152,3 +171,4 @@ if [[ ! -s $log ]]; then
 fi
 
 unset fraggedTables
+unset analyzeTables
